@@ -25,12 +25,13 @@ export function uiDocument(bodyChildren = []) {
             if ('hidden' in childAttrs) child.hidden = true;
             if ('disabled' in childAttrs) child.disabled = true;
             stack.at(-1).appendChild(child);
-            if (!['input', 'br', 'hr', 'meta', 'img'].includes(match[1])) stack.push(child);
+            if (!token.endsWith('/>') && !['input', 'br', 'hr', 'meta', 'img'].includes(match[1])) stack.push(child);
           } else stack.at(-1).childNodes.push(token);
         }
       } },
     });
     node.style = {};
+    node.setAttribute = (name, value) => { node.attrs[name] = String(value); };
     node.dataset = new Proxy({}, {
       get: (_, key) => node.attrs[`data-${key}`],
       set: (_, key, value) => { node.attrs[`data-${key}`] = value; return true; },

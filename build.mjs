@@ -15,6 +15,7 @@ export async function build({ write = true } = {}) {
     entryPoints: [path.join(ROOT, 'src', 'main.js')],
     outfile: OUTFILE,
     bundle: true,
+    loader: { '.css': 'text' },
     format: 'iife',
     target: 'es2020',
     charset: 'utf8',

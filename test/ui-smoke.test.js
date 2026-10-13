@@ -157,7 +157,7 @@ test('打包脚本 UI 冒烟：默认 MP4、单条/批量都选目录直接写�
     assert.equal(picks, 3); assert.equal(files.size, 2);
     assert.ok(tabs.every((tab) => tab.closed));
     assert.equal([...values.keys()].filter((k) => k.startsWith('capture:')).length, 0);
-    assert.equal(listeners.size, 0);
+    assert.deepEqual([...listeners.values()].map((listener) => listener.k), ['appearance'], '捕获监听已清理，只保留面板外观监听');
     // 点「确定」：清除结果，恢复下载前的列表和状态
     $('.dl-cancel').click();
     assert.ok($('.dl').hidden);

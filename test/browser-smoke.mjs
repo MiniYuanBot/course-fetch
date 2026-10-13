@@ -160,6 +160,31 @@ async function pageTest() {
   await until(() => /共 1 页，2 条录像/.test($('.status').textContent), 5000, '扫描完成');
   console.info('[smoke] 列表与面板就绪');
 
+  // 真实 Shadow DOM 中验证完整主题链路，下面的下载测试仍使用本地合成数据。
+  const host = document.querySelector('#course-fetch-host');
+  const chooseTheme = (value) => { $('.theme').value = value; $('.theme').dispatchEvent(new Event('change')); };
+  chooseTheme('dark');
+  if (host.dataset.theme !== 'dark' || getComputedStyle($('.cf')).backgroundColor !== 'rgb(32, 32, 35)') throw new Error('独立深色没有生效');
+  document.documentElement.setAttribute('data-pku-prism', 'enabled');
+  document.documentElement.setAttribute('data-pku-prism-theme', 'light');
+  await until(() => host.dataset.theme === 'light', 1000, '继承 Prism 浅色');
+  if (!$('.theme').disabled || getComputedStyle($('.cf')).color !== 'rgb(24, 24, 27)') throw new Error('Prism 浅色文字/控件状态不正确');
+  document.documentElement.setAttribute('data-pku-prism-theme', 'dark');
+  await until(() => host.dataset.theme === 'dark', 1000, '跟随 Prism 切换');
+  document.documentElement.removeAttribute('data-pku-prism');
+  document.documentElement.removeAttribute('data-pku-prism-theme');
+  await until(() => !$('.theme').disabled, 1000, '停用 Prism 后恢复偏好');
+  if (host.dataset.theme !== 'dark' || $('.theme').value !== 'dark' || GM_getValue('appearance') !== 'dark') throw new Error('独立偏好被 Prism 覆盖');
+  chooseTheme('light');
+  if (getComputedStyle($('.cf')).backgroundColor !== 'rgb(255, 255, 255)') throw new Error('独立浅色没有生效');
+  const collapsed = $('.cf').classList.contains('collapsed');
+  $('.hd').click();
+  if ($('.hd').getAttribute('aria-expanded') !== String(collapsed)) throw new Error('折叠按钮无障碍状态没有同步');
+  $('.hd').click();
+  chooseTheme('system');
+  out.appearancePassed = true;
+  console.info('[smoke] Prism 继承、动态切换、独立偏好与折叠状态通过');
+
   // 1) 完整下载 L01（FAST），采样进度
   rowBtn(0).click();
   out.started = snap();
@@ -369,6 +394,7 @@ const check = (cond, msg) => {
 
 main()
   .then(({ out, consoleLines }) => {
+    check(out.appearancePassed, '浅深色、Prism 启停继承、手动偏好与折叠 ARIA 状态');
     check(consoleLines.some((l) => /\[Course Fetch\] v[\d.]+ loaded/.test(l)), `启动日志：${consoleLines.find((l) => l.includes('loaded'))}`);
     check(!consoleLines.some((l) => l.startsWith('EXCEPTION')), '页面没有未捕获异常');
     check(!out.started.dlHidden, `点击下载后立即显示进度面板（${out.started.l1}）`);

@@ -24,6 +24,8 @@ FileSystemWritableFileStream 直接写盘
 src/
   userscript.meta.js   # userscript header（@version 构建时从 package.json 填入）
   main.js              # 入口：初始化状态、扫描、打开/导出、单条和批量下载流程
+  ui.js / ui.css       # Shadow DOM 面板、Prism 风格的浅深色变量与响应式布局
+  theme.js             # Prism 公开主题属性监听、独立偏好、系统主题与生命周期清理
   parser.js            # 日期节次、排序去重、排除与日期区间、文件名模板、manifest（纯函数）
   page.js              # 教学网页面：DOM 提取、分页、课程名、定位播放列表（自动捕获，超时后手动输入）
   capture.js           # m3u8 自动捕获：列表页打开临时播放页并等待结果；播放页用 Resource Timing 发现 m3u8

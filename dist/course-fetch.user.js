@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Course Fetch
 // @namespace    https://github.com/MiniYuanBot/course-fetch
-// @version      0.5.1
+// @version      0.6.0
 // @description  北大教学网课堂实录：枚举整门课程录像、排序、命名、导出 manifest，支持单条和批量下载，无损保存为 MP4。
 // @homepageURL  https://github.com/MiniYuanBot/course-fetch
 // @supportURL   https://github.com/MiniYuanBot/course-fetch/issues
@@ -2364,84 +2364,113 @@
     return batchProgress(batch);
   }
 
+  // src/theme.js
+  var APPEARANCE_KEY = "appearance";
+  var validTheme = (value) => value === "light" || value === "dark";
+  var preferenceOf = (value) => validTheme(value) ? value : "system";
+  function resolveAppearance({ preference, prismTheme, systemDark = false }) {
+    if (validTheme(prismTheme)) return { theme: prismTheme, source: "prism" };
+    if (validTheme(preference)) return { theme: preference, source: "manual" };
+    return { theme: systemDark ? "dark" : "light", source: "system" };
+  }
+  function mountAppearance({ host, select, status, win = window, doc = document, storage = store }) {
+    const roots = [];
+    let cursor = win;
+    while (cursor) {
+      try {
+        const root = (cursor === win ? doc : cursor.document)?.documentElement;
+        if (root) roots.push(root);
+        if (!cursor.parent || cursor.parent === cursor) break;
+        cursor = cursor.parent;
+      } catch {
+        break;
+      }
+    }
+    let preference = preferenceOf(storage.get(APPEARANCE_KEY, "system"));
+    let destroyed = false;
+    const media = typeof win.matchMedia === "function" ? win.matchMedia("(prefers-color-scheme: dark)") : null;
+    const prismOption = select.querySelector('option[value="prism"]');
+    const readPrism = () => {
+      for (const root of roots) {
+        const theme = root.getAttribute("data-pku-prism-theme");
+        if (root.getAttribute("data-pku-prism") === "enabled" && validTheme(theme)) return theme;
+      }
+      return null;
+    };
+    function refresh() {
+      if (destroyed) return;
+      const { theme, source } = resolveAppearance({ preference, prismTheme: readPrism(), systemDark: media?.matches });
+      host.setAttribute("data-theme", theme);
+      host.setAttribute("data-theme-source", source);
+      host.style.colorScheme = theme;
+      const inherited = source === "prism";
+      if (prismOption) prismOption.hidden = !inherited;
+      select.value = inherited ? "prism" : preference;
+      select.disabled = inherited;
+      const label = theme === "dark" ? "深色" : "浅色";
+      status.textContent = inherited ? `${label} · 由 Prism 管理` : source === "system" ? `当前${label} · 跟随系统` : `当前${label} · 已记住`;
+      select.title = inherited ? "请在 PKU Prism 中切换主题；停用 Prism 后恢复独立偏好" : "没有启用 PKU Prism 时使用此偏好";
+    }
+    function change() {
+      if (select.disabled) return;
+      preference = preferenceOf(select.value);
+      storage.set(APPEARANCE_KEY, preference);
+      refresh();
+    }
+    const observer = typeof win.MutationObserver === "function" ? new win.MutationObserver(refresh) : null;
+    for (const root of roots) observer?.observe(root, { attributes: true, attributeFilter: ["data-pku-prism", "data-pku-prism-theme"] });
+    select.addEventListener("change", change);
+    if (media?.addEventListener) media.addEventListener("change", refresh);
+    else media?.addListener?.(refresh);
+    win.addEventListener?.("pageshow", refresh);
+    const stopStorage = storage.onChange(APPEARANCE_KEY, (value) => {
+      preference = preferenceOf(value);
+      refresh();
+    });
+    refresh();
+    return {
+      destroy() {
+        if (destroyed) return;
+        destroyed = true;
+        observer?.disconnect();
+        select.removeEventListener?.("change", change);
+        if (media?.removeEventListener) media.removeEventListener("change", refresh);
+        else media?.removeListener?.(refresh);
+        win.removeEventListener?.("pageshow", refresh);
+        stopStorage();
+      }
+    };
+  }
+
+  // src/ui.css
+  var ui_default = ':host {\n  all: initial;\n  position: fixed;\n  right: 16px;\n  bottom: 16px;\n  z-index: 2147483000;\n  --cf-surface: #fff;\n  --cf-subtle: #f4f4f5;\n  --cf-border: #e4e4e7;\n  --cf-control-border: #71717a;\n  --cf-text: #18181b;\n  --cf-muted: #52525b;\n  --cf-accent: #9e2533;\n  --cf-selected: #faeef0;\n  --cf-brand: #9e2533;\n  --cf-brand-hover: #85202b;\n  --cf-on-brand: #fff;\n  --cf-success: #166534;\n  --cf-success-bg: #f0fdf4;\n  --cf-warning: #854d0e;\n  --cf-warning-bg: #fefce8;\n  --cf-danger: #b91c1c;\n  --cf-danger-bg: #fef2f2;\n}\n:host([data-theme="dark"]) {\n  --cf-surface: #202023;\n  --cf-subtle: #27272a;\n  --cf-border: #3f3f46;\n  --cf-control-border: #a1a1aa;\n  --cf-text: #f4f4f5;\n  --cf-muted: #a1a1aa;\n  --cf-accent: #f0a3ad;\n  --cf-selected: #38272d;\n  --cf-brand-hover: #b02a3a;\n  --cf-success: #86efac;\n  --cf-success-bg: #16271e;\n  --cf-warning: #fde68a;\n  --cf-warning-bg: #30291b;\n  --cf-danger: #fca5a5;\n  --cf-danger-bg: #331f23;\n}\n*, *::before, *::after { box-sizing: border-box; }\n[hidden] { display: none !important; }\n::selection { color: var(--cf-text); background: var(--cf-selected); }\n.cf {\n  width: 760px;\n  max-width: calc(100vw - 32px);\n  max-height: calc(100vh - 32px);\n  max-height: calc(100dvh - 32px);\n  display: flex;\n  flex-direction: column;\n  overflow: hidden;\n  font: 13px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;\n  font-variant-numeric: tabular-nums;\n  color: var(--cf-text);\n  background: var(--cf-surface);\n  border: 1px solid var(--cf-border);\n  border-radius: 8px;\n  color-scheme: inherit;\n  scrollbar-color: var(--cf-control-border) var(--cf-surface);\n  scrollbar-width: thin;\n}\n.cf.collapsed { width: auto; }\nbutton, input, select { font: inherit; color: var(--cf-text); }\nbutton, select, summary, input[type="checkbox"] { cursor: pointer; }\nbutton {\n  min-height: 32px;\n  padding: 4px 10px;\n  background: var(--cf-surface);\n  border: 1px solid var(--cf-border);\n  border-radius: 6px;\n  white-space: nowrap;\n}\nbutton:hover:not(:disabled) { background: var(--cf-subtle); }\nbutton:disabled, input:disabled, select:disabled { cursor: not-allowed; opacity: .6; }\nbutton.primary { color: var(--cf-on-brand); background: var(--cf-brand); border-color: var(--cf-brand); font-weight: 600; }\nbutton.primary:hover:not(:disabled) { background: var(--cf-brand-hover); border-color: var(--cf-brand-hover); }\n:is(button, input, select, summary):focus-visible { outline: 2px solid var(--cf-accent); outline-offset: 2px; }\ninput, select { min-height: 32px; padding: 4px 8px; border: 1px solid var(--cf-control-border); border-radius: 6px; background: var(--cf-surface); caret-color: var(--cf-accent); }\ninput[type="text"] { flex: 1; min-width: 0; width: 100%; }\ninput::placeholder { color: var(--cf-muted); opacity: 1; }\ninput[type="checkbox"] { min-height: 0; width: 16px; height: 16px; margin: 0; accent-color: var(--cf-accent); flex: none; }\nselect { min-width: 0; max-width: 100%; }\noption { color: var(--cf-text); background: var(--cf-surface); }\n.hd {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  width: 100%;\n  min-height: 44px;\n  padding: 8px 12px;\n  border: 0;\n  border-radius: 0;\n  text-align: left;\n  flex: none;\n}\n.hd b { font-size: 14px; font-weight: 600; }\n.hd .count { color: var(--cf-muted); overflow-wrap: anywhere; white-space: normal; }\n.hd .mark { color: var(--cf-accent); }\nsvg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }\n.arrow { margin-left: auto; color: var(--cf-muted); display: flex; }\n.collapsed .arrow { transform: rotate(180deg); }\n.cf:not(.collapsed) .hd { border-bottom: 1px solid var(--cf-border); }\n.bd { padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: auto; min-height: 0; }\n.collapsed .bd { display: none; }\nlabel { display: flex; align-items: center; gap: 8px; min-width: 0; }\nlabel > span:first-child { width: 64px; color: var(--cf-muted); flex: none; }\n.template-help { margin: -4px 0 0 72px; }\n.template-help summary { color: var(--cf-muted); }\n.hint { color: var(--cf-muted); font-size: 12px; overflow-wrap: anywhere; margin-top: 8px; }\n.preferences { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; padding-block: 12px; border-block: 1px solid var(--cf-border); }\n.preferences select { flex: 1; width: 100%; }\n.appearance { display: flex; flex-direction: column; gap: 4px; min-width: 0; }\n.theme-source { color: var(--cf-muted); font-size: 12px; padding-left: 72px; }\n.theme-source:empty { display: none; }\n.theme:disabled { opacity: 1; color: var(--cf-muted); background: var(--cf-subtle); border-color: var(--cf-border); }\n.bar { display: flex; flex-wrap: wrap; gap: 8px; }\n.bar .primary { margin-left: auto; }\nbutton.link { border: 0; background: transparent; color: var(--cf-accent); padding: 4px 6px; border-radius: 4px; }\nbutton.link:hover:not(:disabled) { color: var(--cf-accent); background: var(--cf-selected); text-decoration: none; }\n.status { color: var(--cf-muted); overflow-wrap: anywhere; }\n.status:empty { display: none; }\n.status.flash { color: var(--cf-success); }\ndetails summary { width: fit-content; border-radius: 4px; }\ndetails ul { margin: 8px 0 0; padding-left: 20px; max-height: 100px; overflow: auto; }\n.warn { color: var(--cf-warning); background: var(--cf-warning-bg); padding: 8px 12px; border-radius: 6px; }\n.tbl { max-height: 42vh; min-height: 64px; overflow: auto; border: 1px solid var(--cf-border); border-radius: 6px; scrollbar-gutter: stable; }\ntable { border-spacing: 0; width: 100%; min-width: 680px; font: inherit; }\nth, td { padding: 8px; border-bottom: 1px solid var(--cf-border); text-align: left; white-space: nowrap; vertical-align: top; }\nth { position: sticky; top: 0; z-index: 1; color: var(--cf-muted); background: var(--cf-subtle); font-size: 12px; font-weight: 600; }\nth:first-child, td:first-child { width: 32px; }\nth:last-child { min-width: 215px; }\ntbody tr:last-child td { border-bottom: 0; }\ntbody tr:hover { background: var(--cf-subtle); }\ntd.fn { min-width: 180px; font: 12px/1.65 ui-monospace, Menlo, Consolas, monospace; white-space: normal; overflow-wrap: anywhere; }\ntd:last-child { padding-block: 4px; }\n.muted, tr.excluded { color: var(--cf-muted); }\ntr.excluded .fn { text-decoration: line-through; }\n.excl-box { color: var(--cf-text); }\n.excl-bd { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }\n.excl-rows, .excl-item { display: flex; flex-direction: column; gap: 8px; }\n.excl-row, .excl-name { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }\n.excl-row input[type="text"] { flex: 1 1 200px; }\n.excl-add, .excl-del { width: 32px; padding: 4px; color: var(--cf-accent); }\n.excl-name { margin-left: 40px; }\n.excl-name input[type="text"] { flex: 1 1 160px; }\n.excl-acts { display: flex; gap: 4px; flex: none; }\n.holidays { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }\n.holidays:empty { display: none; }\n.hol { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 8px; background: var(--cf-subtle); border-radius: 4px; max-width: 100%; overflow-wrap: anywhere; }\n.hol.off, .hol .dates, .hol-tag { color: var(--cf-muted); }\n.hol .dates, .hol-tag { font-size: 12px; }\n.dl { background: var(--cf-subtle); border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 8px; overflow-wrap: anywhere; }\n.dl-top { display: flex; align-items: center; gap: 8px; }\n.dl-name { flex: 1; min-width: 0; font: 12px/1.65 ui-monospace, Menlo, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.dl-bar { height: 6px; background: var(--cf-border); border-radius: 4px; overflow: hidden; }\n.dl-fill { height: 100%; width: 0; background: var(--cf-accent); }\n.dl-bar.indeterminate .dl-fill { width: 30%; }\n.dl-l1 { color: var(--cf-text); }\n.dl-l2 { color: var(--cf-muted); font-size: 12px; }\n.dl-warn { color: var(--cf-danger); background: var(--cf-danger-bg); padding: 8px; border-radius: 4px; font-size: 12px; }\n.dl-note { color: var(--cf-warning); background: var(--cf-warning-bg); padding: 8px; border-radius: 4px; font-size: 12px; }\n.dl.done { background: var(--cf-success-bg); }\n.dl.done .dl-l1 { color: var(--cf-success); }\n.dl.done .dl-cancel { font-weight: 600; }\n.task-state { display: block; color: var(--cf-muted); white-space: normal; max-width: 240px; font-size: 12px; }\n.task-state[data-status="failed"] { color: var(--cf-danger); }\n.task-state[data-status="completed"] { color: var(--cf-success); }\n.task-state .notice { color: var(--cf-warning); }\n@media (max-width: 600px) {\n  :host { right: 8px; bottom: 8px; }\n  .cf { max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); max-height: calc(100dvh - 16px); }\n  .bd { padding: 12px; }\n  .preferences { grid-template-columns: minmax(0, 1fr); }\n  .bar .primary { margin-left: 0; }\n  .excl-acts { margin-left: 40px; }\n  .excl-row input[type="text"] { flex-basis: calc(100% - 40px); }\n}\n@media (pointer: coarse) {\n  button, input:not([type="checkbox"]), select { min-height: 44px; }\n  summary { padding-block: 8px; }\n}\n';
+
   // src/ui.js
-  var PANEL_CSS = `
-  :host { all: initial; }
-  .cf { font: 12px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; color: #222;
-        background: #fff; border: 1px solid #ccc; border-radius: 6px; box-shadow: 0 2px 12px rgba(0,0,0,.15);
-        width: 620px; max-width: calc(100vw - 32px); }
-  .cf.collapsed { width: auto; }
-  .hd { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; user-select: none;
-        background: #f6f6f6; border-radius: 6px; }
-  .cf:not(.collapsed) .hd { border-bottom: 1px solid #e5e5e5; border-radius: 6px 6px 0 0; }
-  .hd b { font-weight: 600; } .hd .count { color: #666; } .hd .arrow { margin-left: auto; color: #999; }
-  .bd { padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
-  .collapsed .bd { display: none; }
-  label { display: flex; align-items: center; gap: 6px; }
-  label span { width: 56px; color: #555; flex: none; }
-  select { font: inherit; padding: 1px 4px; border: 1px solid #ccc; border-radius: 3px; }
-  input[type=text] { flex: 1; min-width: 0; font: inherit; padding: 2px 6px; border: 1px solid #ccc; border-radius: 3px; }
-  .hint { color: #888; font-size: 11px; margin-left: 62px; }
-  .bar { display: flex; flex-wrap: wrap; gap: 4px; }
-  button { font: inherit; padding: 2px 8px; border: 1px solid #bbb; border-radius: 3px; background: #fafafa; cursor: pointer; }
-  button:hover { background: #eee; } button:disabled { opacity: .5; cursor: default; }
-  button.link { border: none; background: none; color: #1a5fb4; padding: 0 4px; }
-  .status { color: #444; } .status.flash { color: #1a7f37; }
-  details { color: #9a6700; } details ul { margin: 4px 0 0; padding-left: 18px; max-height: 100px; overflow: auto; }
-  .tbl { max-height: 45vh; overflow: auto; border: 1px solid #eee; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { padding: 2px 6px; border-bottom: 1px solid #f0f0f0; text-align: left; white-space: nowrap; }
-  th { position: sticky; top: 0; background: #fafafa; font-weight: 600; }
-  td.fn { font-family: ui-monospace, Menlo, Consolas, monospace; white-space: normal; word-break: break-all; }
-  .muted { color: #888; }
-  tr.excluded { color: #999; }
-  tr.excluded .fn { text-decoration: line-through; }
-  .excl-box { color: #555; }
-  .excl-box > summary { cursor: pointer; width: fit-content; }
-  .excl-bd { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 0 10px; }
-  .excl-rows { display: flex; flex-direction: column; gap: 2px; }
-  .excl-item { display: flex; flex-direction: column; gap: 2px; }
-  .excl-row { display: flex; align-items: center; gap: 4px; }
-  .excl-row input[type=text] { flex: 1; min-width: 0; }
-  .excl-add, .excl-del { border: none; background: none; padding: 0; width: 14px; font-weight: 600; color: #1a5fb4; }
-  .excl-del { color: #999; }
-  .excl-name { display: flex; align-items: center; gap: 4px; margin-left: 18px; }
-  .excl-name input[type=text] { flex: 0 0 160px; }
-  .excl-add { border: none; background: none; color: #1a5fb4; padding: 0; width: 14px; font-weight: 600; }
-  .excl-acts { display: flex; gap: 4px; flex: none; }
-  .holidays { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-  .holidays:empty { display: none; }
-  .hol { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; background: #f2f4f7; border-radius: 10px; }
-  .hol.off { color: #999; background: #fafafa; }
-  .hol .dates { color: #888; font-size: 11px; }
-  .hol-tag { color: #888; font-size: 11px; }
-  .dl { border: 1px solid #cfe0f5; background: #f5f9ff; border-radius: 4px; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; }
-  .dl[hidden] { display: none; }
-  .dl-top { display: flex; align-items: center; gap: 8px; }
-  .dl-name { flex: 1; min-width: 0; font-family: ui-monospace, Menlo, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .dl-bar { height: 6px; background: #dde6f0; border-radius: 3px; overflow: hidden; position: relative; }
-  .dl-fill { height: 100%; width: 0; background: #1a5fb4; transition: width .2s; }
-  .dl-bar.indeterminate .dl-fill { width: 30%; position: absolute; animation: cf-slide 1.2s ease-in-out infinite; }
-  @keyframes cf-slide { from { left: -30%; } to { left: 100%; } }
-  .dl-l1 { color: #333; } .dl-l2 { color: #666; font-size: 11px; }
-  .dl-warn { color: #b42318; font-size: 11px; }
-  .dl-note { color: #9a6700; font-size: 11px; }
-  .dl.done { border-color: #b7dfc3; background: #f3fbf5; }
-  .dl.done .dl-cancel { font-weight: 600; }
-  .task-state { display: block; color: #555; white-space: normal; max-width: 220px; }
-  .task-state[data-status="failed"] { color: #b42318; }
-  .task-state .notice { color: #9a6700; }
-`;
   var PANEL_HTML = `
-  <style>${PANEL_CSS}</style>
-  <div class="cf">
-    <div class="hd"><b>Course Fetch</b><span class="count"></span><span class="arrow"></span></div>
-    <div class="bd">
+  <style>${ui_default}</style>
+  <div class="cf" role="region" aria-label="Course Fetch 录像工具">
+    <button type="button" class="hd" aria-expanded="false" aria-controls="cf-body">
+      <svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4"/></svg>
+      <b>Course Fetch</b><span class="count"></span>
+      <span class="arrow"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+    </button>
+    <div class="bd" id="cf-body">
       <label><span>课程</span><input type="text" class="course"></label>
       <label><span>命名模板</span><input type="text" class="tpl"><button class="reset-tpl">重置</button></label>
+      <details class="template-help"><summary>模板变量说明</summary>
       <div class="hint">变量：{index:02d}, {date}, {YYYY}, {YY}, {MM}, {DD}, {periodStart}, {periodEnd}, {teacher}, {time}, {startTime}</div>
       <div class="hint">课程：{course} 完整名称, {courseName} 课程名, {academicYear} 学年（如 24-25）, {semester} 学期（如 1）</div>
+      </details>
+      <div class="preferences">
       <label><span>输出格式</span><select class="fmt"><option value="mp4">MP4（无损转封装，推荐）</option><option value="ts">TS（原始流）</option></select></label>
+      <div class="appearance">
+        <label><span>外观</span><select class="theme" aria-describedby="cf-theme-source">
+          <option value="prism" hidden>跟随 PKU Prism</option>
+          <option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option>
+        </select></label>
+        <span class="theme-source" id="cf-theme-source" role="status"></span>
+      </div>
+      </div>
       <details class="excl-box">
         <summary class="excl-sum">排除日期</summary>
         <div class="excl-bd">
@@ -2454,9 +2483,9 @@
         <button data-act="all">全选</button>
         <button data-act="none">全不选</button>
         <button data-act="open">打开选中</button>
-        <button data-act="download">下载选中</button>
         <button data-act="copy">复制清单</button>
         <button data-act="export">导出 JSON</button>
+        <button class="primary" data-act="download">下载选中</button>
       </div>
       <div class="dl" hidden>
         <div class="dl-top"><span class="dl-name"></span><button class="dl-cancel">取消</button></div>
@@ -2466,10 +2495,10 @@
         <div class="dl-warn" hidden></div>
         <div class="dl-note" hidden></div>
       </div>
-      <div class="status"></div>
+      <div class="status" role="status" aria-live="polite"></div>
       <details class="warn" hidden><summary></summary><ul></ul></details>
       <div class="tbl"><table>
-        <thead><tr><th><input type="checkbox" class="chk-all"></th><th>#</th><th>文件名</th><th>开始时间</th><th>教师</th><th></th></tr></thead>
+        <thead><tr><th><input type="checkbox" class="chk-all" aria-label="选择全部可用录像"></th><th>#</th><th>文件名</th><th>开始时间</th><th>教师</th><th>操作</th></tr></thead>
         <tbody></tbody>
       </table></div>
     </div>
@@ -2497,7 +2526,6 @@
   function createUI({ state, courseId, filenameOf, outputNameOf = filenameOf, actions }) {
     const host = document.createElement("div");
     host.id = "course-fetch-host";
-    host.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:2147483000;";
     const root = host.attachShadow({ mode: "open" });
     root.innerHTML = PANEL_HTML;
     document.body.appendChild(host);
@@ -2505,7 +2533,6 @@
     const ui = {
       panel: $(".cf"),
       count: $(".count"),
-      arrow: $(".arrow"),
       course: $(".course"),
       tpl: $(".tpl"),
       fmt: $(".fmt"),
@@ -2528,6 +2555,7 @@
         note: $(".dl-note")
       }
     };
+    const appearance = mountAppearance({ host, select: $(".theme"), status: $(".theme-source") });
     const selectedEntries = () => state.entries.filter((e) => state.selected.has(entryKey(e)));
     const selectableEntries = () => state.entries.filter((e) => !e.excluded);
     const exclusionsOf = (entries) => collectExclusions(entries, state.excluded, holidayRanges(state.holidays));
@@ -2626,21 +2654,21 @@
           box2.l2.textContent = `正在处理 ${p.active} · 排队 ${p.queued} · 已写入 ${formatBytes(p.bytes)} · ${batchSave}（总进度按录像等权，含失败/取消）`;
         }
         const notes = [];
-        if (p.fallbacks) notes.push(`⚠ ${p.fallbacks} 条录像编码无法无损转为 MP4，已改存为 TS`);
-        if (batch.sinkKind === "opfs") notes.push(`⚠ ${batch.sinkNote || "当前浏览器不支持目录写入"}，使用浏览器临时存储，完成后保存`);
-        else if (batch.sinkKind === "memory") notes.push(`⚠ ${batch.sinkNote || "当前浏览器不支持目录写入"}，内存合并，逐条保存`);
+        if (p.fallbacks) notes.push(`注意：${p.fallbacks} 条录像编码无法无损转为 MP4，已改存为 TS`);
+        if (batch.sinkKind === "opfs") notes.push(`注意：${batch.sinkNote || "当前浏览器不支持目录写入"}，使用浏览器临时存储，完成后保存`);
+        else if (batch.sinkKind === "memory") notes.push(`注意：${batch.sinkNote || "当前浏览器不支持目录写入"}，内存合并，逐条保存`);
         box2.note.hidden = !notes.length;
         box2.note.textContent = notes.join("；");
         box2.warn.hidden = !p.badTs;
-        box2.warn.textContent = p.badTs ? `⚠ ${p.badTs} 个分片不是有效的 TS 数据，请检查对应录像` : "";
+        box2.warn.textContent = p.badTs ? `注意：${p.badTs} 个分片不是有效的 TS 数据，请检查对应录像` : "";
         for (const task of batch.tasks) {
           const row = ui.tbody.querySelector(`tr[data-key="${CSS.escape(task.key)}"]`);
           if (!row) continue;
           const label = row.querySelector(".task-state");
           label.dataset.status = task.status;
           const progress = task.total ? ` · ${task.done}/${task.total} 分片 · ${formatBytes(task.bytes)}` : "";
-          label.textContent = (task.status === "completed" ? "已完成" : task.status === "failed" ? `失败：${task.error}` : task.status === "cancelled" ? "已取消" : task.aborting ? "取消中…" : PHASE_LABEL[task.phase]) + progress + (task.badTs ? ` · ⚠ ${task.badTs} 个异常 TS 分片` : "");
-          if (task.notice) label.appendChild(Object.assign(document.createElement("span"), { className: "notice", textContent: ` · ⚠ ${task.notice}` }));
+          label.textContent = (task.status === "completed" ? "已完成" : task.status === "failed" ? `失败：${task.error}` : task.status === "cancelled" ? "已取消" : task.aborting ? "取消中…" : PHASE_LABEL[task.phase]) + progress + (task.badTs ? ` · 注意：${task.badTs} 个异常 TS 分片` : "");
+          if (task.notice) label.appendChild(Object.assign(document.createElement("span"), { className: "notice", textContent: ` · 注意：${task.notice}` }));
           label.title = `${task.filename}${task.error ? `：${task.error}` : ""}${task.notice ? `：${task.notice}` : ""}`;
           const cancel = row.querySelector('[data-row="batch-cancel"]');
           cancel.hidden = !batch.running || isTaskFinished(task);
@@ -2673,20 +2701,20 @@
       }
       box2.l2.textContent = parts.join(" · ");
       box2.warn.hidden = !d.badTs;
-      box2.warn.textContent = d.badTs ? `⚠ ${d.badTs} 个分片解密后不是有效的 TS 数据（key/IV 可能不对），建议取消后检查` : "";
+      box2.warn.textContent = d.badTs ? `注意：${d.badTs} 个分片解密后不是有效的 TS 数据（key/IV 可能不对），建议取消后检查` : "";
       const note = [
         d.sinkKind === "memory" && d.sinkNote ? `${d.sinkNote}，改为在内存中合并（占用内存约等于视频大小）` : "",
         d.sinkKind === "opfs" ? `${d.sinkNote || "当前浏览器不支持目录写入"}，使用浏览器临时存储，完成后保存` : "",
         d.notice
       ].filter(Boolean);
       box2.note.hidden = !note.length;
-      box2.note.textContent = note.map((n) => `⚠ ${n}`).join("；");
+      box2.note.textContent = note.map((n) => `注意：${n}`).join("；");
       const btn = ui.tbody.querySelector(`tr[data-key="${CSS.escape(d.key)}"] button[data-row="download"]`);
       if (btn) btn.textContent = downloadButtonLabel(d.key);
     }
     function render() {
       ui.panel.classList.toggle("collapsed", state.collapsed);
-      ui.arrow.textContent = state.collapsed ? "▴" : "▾";
+      $(".hd").setAttribute("aria-expanded", String(!state.collapsed));
       ui.count.textContent = headerCount();
       if (root.activeElement !== ui.course) ui.course.value = state.course;
       if (root.activeElement !== ui.tpl) ui.tpl.value = state.template;
@@ -2755,6 +2783,7 @@
         });
         box2.dataset.hol = String(i);
         box2.title = "停用后不再自动排除";
+        box2.setAttribute("aria-label", `启用排除标签 ${h.name}`);
         const name = Object.assign(document.createElement("span"), { textContent: h.name });
         const dates = Object.assign(document.createElement("span"), {
           className: "dates",
@@ -2787,7 +2816,10 @@
           const td = document.createElement("td");
           if (i === 2) td.className = "fn";
           if (typeof c === "string") td.textContent = c;
-          else td.appendChild(c);
+          else {
+            c.setAttribute("aria-label", `选择录像 ${e.index ?? e.origIndex}`);
+            td.appendChild(c);
+          }
           tr.appendChild(td);
         });
         const act = document.createElement("td");
@@ -3034,7 +3066,17 @@
       const d = state.download;
       if (d && confirm(`取消下载 ${d.filename}？`)) actions.cancelDownload();
     });
-    return { render, setStatus, flash, updateDownloadUI };
+    const onPageHide = (event) => {
+      if (!event.persisted) appearance.destroy();
+    };
+    window.addEventListener("pagehide", onPageHide);
+    function destroy() {
+      clearTimeout(flashTimer);
+      appearance.destroy();
+      window.removeEventListener?.("pagehide", onPageHide);
+      host.remove();
+    }
+    return { render, setStatus, flash, updateDownloadUI, destroy };
   }
 
   // src/directory.js
@@ -3174,7 +3216,7 @@
   function listPage() {
     if (window.__courseFetchLoaded) return;
     window.__courseFetchLoaded = true;
-    const VERSION = typeof GM_info !== "undefined" && GM_info.script && GM_info.script.version || "0.5.1";
+    const VERSION = typeof GM_info !== "undefined" && GM_info.script && GM_info.script.version || "0.6.0";
     console.info(`[Course Fetch] v${VERSION} loaded`);
     const courseId = parseCourseId(location.href);
     const savedExcluded = store.get(`excluded:${courseId}`, []);
