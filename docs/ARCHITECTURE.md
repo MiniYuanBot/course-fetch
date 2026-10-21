@@ -189,5 +189,5 @@ npm run ts2mp4 -- in.ts [out.mp4]   # 离线转封装
 - 教学网加载了 Prototype.js，它会覆盖 `Array.from` 等全局方法。处理 DOM 集合时只用普通循环，不要使用 `Array.from(list, mapFn)`。
 - 列表同时识别学生的「观看」和助教/教师的「预览」链接；分页只沿「下一页」按钮（含图片按钮）读取，末页没有下一页时停止。翻页链接如果是 `javascript:` 跳转并且提取不出 URL，就无法自动翻页。
 - 分页通过同源 `fetch` 获取，依赖当前登录状态。
-- 课程名按 Blackboard 常见元素启发式识别。
+- 课程名优先读取课程面包屑 `.path .coursePath #crumb_1` 的文本（含末尾学年学期），先遍历当前页及可访问的父级、顶层页面，再回退到 Blackboard 常见元素、正文和页面标题；手动修改并保存的课程名仍优先使用。
 - 暂不支持 `EXT-X-BYTERANGE`、`EXT-X-MAP`（fMP4）和直播（没有 `EXT-X-ENDLIST` 时只下载当时列表中的分片）。

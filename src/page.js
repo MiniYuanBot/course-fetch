@@ -107,7 +107,7 @@ export function extractPage(doc, baseUrl) {
  * fetchDoc(url) => Promise<Document>，由调用方注入（浏览器用 fetch，测试用假对象）。
  * 末页没有下一页按钮；visited 和 maxPages 防止异常分页造成循环。
  */
-export async function crawlCourse({ firstDoc, firstUrl, fetchDoc, maxPages = 50, onProgress = () => {} }) {
+export async function crawlCourse({ firstDoc, firstUrl, fetchDoc, maxPages = 50, onProgress = () => { } }) {
   const stripHash = (u) => String(u).split('#')[0];
   const warnings = [];
   const rows = [];
@@ -186,7 +186,7 @@ export async function locatePlaylist(watchUrl, { signal, capture = capturePlayli
 function askPlaylistUrl() {
   const manual = prompt(
     '自动捕获播放列表超时。\n' +
-      '可以打开该录像的播放页，按 F12 → Network 搜索 “m3u8”，复制请求地址粘贴到这里：',
+    '可以打开该录像的播放页，按 F12 → Network 搜索 “m3u8”，复制请求地址粘贴到这里：',
   );
   if (manual && /^https?:\/\/\S+\.m3u8/i.test(manual.trim())) return manual.trim();
   if (manual === null) throw abortError();
@@ -205,14 +205,15 @@ export function detectCourseName() {
     }
   }
   const selectors = [
-    '#courseMenuPalette_paletteTitleHeading',
+    '.path .coursePath #crumb_1',
     '#courseMenu_link',
     '.courseName',
     '.course-name',
     '#crumb_1',
   ];
-  for (const d of docs) {
-    for (const sel of selectors) {
+  // 课程面包屑可能在父级 frame；先跨文档查同一选择器，避免当前页侧栏抢先命中。
+  for (const sel of selectors) {
+    for (const d of docs) {
       const el = d.querySelector(sel);
       if (!el) continue;
       const txt = normalizeText(el.textContent) || normalizeText(el.getAttribute('title'));

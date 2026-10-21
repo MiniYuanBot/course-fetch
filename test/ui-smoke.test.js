@@ -20,7 +20,17 @@ test('打包脚本 UI 冒烟：默认 MP4、单条/批量都选目录直接写�
     h('td', {}, h('span', { class: 'table-data-cell-value' }, `2026-09-${20 + i} 10:10:00`)),
     h('td', {}, h('span', { class: 'table-data-cell-value' }, '王老师')),
     h('td', {}, h('span', { class: 'table-data-cell-value' }, h('a', { href: `playVideo.action?token=${i}` }, i === 0 ? '预览' : '观看'))));
-  const document = uiDocument([h('table', {}, row(0), row(1), row(2))]);
+  const course = '计算机组织与体系结构(26-27学年第1学期)';
+  const document = uiDocument([
+    h('h2', { id: 'courseMenuPalette_paletteTitleHeading' }, '课程菜单'),
+    h('div', { class: 'path noToggle' }, h('ol', { class: 'clearfix' },
+      h('li', { class: 'root coursePath' },
+        h('a', { href: '/webapps/blackboard/execute/courseMain?course_id=x', title: course },
+          h('span', { id: 'crumb_1' }, `\n    ${course}\n  `)),
+        h('div', { class: 'courseArrow' }, h('a', { title: '课程间导航' }, '课程间导航'))),
+      h('li', { class: 'placeholder', hidden: '' }, h('span', { id: 'crumb_2' }, '课堂实录')))),
+    h('table', {}, row(0), row(1), row(2)),
+  ]);
   const values = new Map(), listeners = new Map(), tabs = [], files = new Map();
   const timers = new Set();
   const timeout = (fn, ms) => { const timer = setTimeout(() => { timers.delete(timer); fn(); }, ms); timers.add(timer); return timer; };
@@ -117,6 +127,7 @@ test('打包脚本 UI 冒烟：默认 MP4、单条/批量都选目录直接写�
     const root = document.shadowRoot, $ = (s) => root.querySelector(s);
     const rows = () => root.querySelectorAll('tbody tr');
     await until(() => /3 条录像/.test($('.status').textContent));
+    assert.equal($('.course').value, course, '课程名取课程面包屑，排除侧栏、导航菜单和课堂实录标题');
     const taskStates = () => rows().map((r) => r.querySelector('.task-state').textContent);
 
     // 单条：与批量相同，选一次目录后直接写盘，不弹另存为、不在内存合并。
